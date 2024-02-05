@@ -4,30 +4,17 @@ run-name: Azure IPAM Production Container Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ fix/ipam-issue ]
 
 permissions:
   id-token: write
   contents: read
-
-env:
-  ACR_NAME: ${{ vars.IPAM_PROD_ACR }}
 
 jobs:
   deploy:
     name: Update Azure IPAM Containers
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Job triggered by a ${{ github.event_name }} event to main."
-
-      - name: Azure login
-        uses: azure/login@v1
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          enable-AzPSSession: true
-
       - name: Checkout Azure IPAM Code
         uses: actions/checkout@v3
         with:
@@ -36,19 +23,40 @@ jobs:
             ui
             lb
 
-      - name: "Upload Azure IPAM Version"
-        id: updateVersion
-        shell: pwsh
-        run: |
-          $newVersion = "latest"
+      - name: Log in to Docker Hub
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-          Write-Output "ipamVersion=$newVersion" >> $Env:GITHUB_OUTPUT
+      - name: Build and push Docker image engine
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        with:
+          context: ./engine
+          file: ./engine/Dockerfile.deb
+          push: true
+          tags: pmorisseau/ipam-engine:latest
 
-      - name: Build Azure IPAM Containers
-        env:
-          IPAM_VERSION: ${{ steps.updateVersion.outputs.ipamVersion }}
-        run: |
-          az acr build -r $ACR_NAME -t ipam-engine:$IPAM_VERSION -f ./engine/Dockerfile.deb ./engine
-          az acr build -r $ACR_NAME -t ipam-func:$IPAM_VERSION -f ./engine/Dockerfile.func ./engine
-          az acr build -r $ACR_NAME -t ipam-ui:$IPAM_VERSION -f ./ui/Dockerfile.deb ./ui
-          az acr build -r $ACR_NAME -t ipam-lb:$IPAM_VERSION -f ./lb/Dockerfile ./lb
+      - name: Build and push Docker image function
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        with:
+          context: ./engine
+          file: ./engine/Dockerfile.func
+          push: true
+          tags: pmorisseau/ipam-func:latest
+
+      - name: Build and push Docker image UI
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        with:
+          context: ./ui
+          file: ./ui/Dockerfile.deb
+          push: true
+          tags: pmorisseau/ipam-ui:latest
+
+      - name: Build and push Docker image LB
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        with:
+          context: ./lb
+          file: ./lb/Dockerfile
+          push: true
+          tags: pmorisseau/ipam-lb:latest
